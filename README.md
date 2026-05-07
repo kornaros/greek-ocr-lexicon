@@ -14,15 +14,15 @@ The dictionary is structured to support real-time text correction by mapping OCR
 
 ## 🛠 File Structure
 The `lexicon.json` file is organized by prefixes. Each entry contains:
-*   `c`: The "clean" version (lowercase, no accents/spirits) for matching[cite: 2].
-*   `o`: The "original" polytonic version for the final correction[cite: 2].
+*   The "clean" version (lowercase, no accents/spirits) for matching.
+*    The "original" polytonic version for the final correction.
 
 Example:
 ```json
 "βι": [
   {
-    "c": "βιβλιο",
-    "o": "βιβλίο"
+     "βιβλιο",
+    "βιβλίο"
   }
 ]
 ```
