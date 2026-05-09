@@ -426,12 +426,25 @@ textarea { flex: 1; font-size:19px; padding: 15px; border: 1px solid #999; borde
     // ========== OCR ==========
 
 // ========== OCR ==========
+
+// ========== OCR ==========
 async function runOCR() {
     if (!imgLoaded) {
         statusDiv.innerText = "Δεν υπάρχει εικόνα!";
         return;
     }
-    statusDiv.innerText = "OCR σε εξέλιξη (grc+ell+eng+lat)...";
+    
+    // 1. Διάβασε τις επιλογές του χρήστη
+    const mainLang = document.getElementById('main-lang').value;     // 'grc', 'ell', ή 'grc+ell'
+    const extraLang = document.getElementById('extra-lang').value;  // '', 'eng', 'lat'
+    
+    // 2. Δημιουργία του string γλωσσών
+    let langString = mainLang;
+    if (extraLang) {
+        langString = langString + '+' + extraLang;
+    }
+    
+    statusDiv.innerText = `OCR σε εξέλιξη (${langString})...`;
 
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = cropBoxState.w;
@@ -440,8 +453,8 @@ async function runOCR() {
     cCtx.drawImage(canvas, cropBoxState.x, cropBoxState.y, cropBoxState.w, cropBoxState.h, 0, 0, cropBoxState.w, cropBoxState.h);
 
     try {
-        // Δημιουργία worker με ΥΠΟΣΤΗΡΙΞΗ 4 ΓΛΩΣΣΩΝ ΤΑΥΤΟΧΡΟΝΑ
-        const worker = await Tesseract.createWorker('grc+ell+eng+lat', 1, {
+        // 3. Δημιουργία worker με τις επιλεγμένες γλώσσες
+        const worker = await Tesseract.createWorker(langString, 1, {
             langPath: 'https://raw.githubusercontent.com/kornaros/greek-ocr-lexicon/main/',
             cachePath: '/',
             gpu: false,
@@ -451,20 +464,17 @@ async function runOCR() {
         const { data: { text } } = await worker.recognize(cropCanvas.toDataURL());
         await worker.terminate();
 
-        // Καθαρισμός συλλαβισμού και ενώσεις γραμμών
         let finalText = text.replace(/-\s*\n\s*/g, "");
         finalText = finalText.replace(/([^\n])\n([^\n])/g, "$1 $2");
         
-        // Εφαρμογή διορθώσεων από το correctionsLexicon
         for (let [err, corr] of Object.entries(correctionsLexicon)) {
             finalText = finalText.replace(new RegExp(err.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), corr);
         }
         
         textArea.value = applyBetacodeOnly(finalText);
-        statusDiv.innerText = "OCR ολοκληρώθηκε! (grc+ell+eng+lat)";
+        statusDiv.innerText = `OCR ολοκληρώθηκε! (${langString})`;
         document.getElementById('save-btn').disabled = false;
         
-        // Ενημέρωση batch textContent αν υπάρχει
         if (typeof currentIdx !== 'undefined' && currentIdx >= 0 && batchFiles && batchFiles[currentIdx]) {
             batchFiles[currentIdx].textContent = textArea.value;
         }
@@ -473,9 +483,9 @@ async function runOCR() {
         console.error("OCR Σφάλμα:", error);
         statusDiv.innerText = "Σφάλμα OCR: " + error.message;
         
-        // Εναλλακτική (fallback) για μία μόνο γλώσσα αν αποτύχουν οι πολλές
+        // Fallback μόνο στα αρχαία ελληνικά
         try {
-            statusDiv.innerText = "Δοκιμή με μία γλώσσα (grc)...";
+            statusDiv.innerText = "Δοκιμή μόνο με αρχαία ελληνικά...";
             const worker = await Tesseract.createWorker('grc', 1, {
                 langPath: 'https://raw.githubusercontent.com/kornaros/greek-ocr-lexicon/main/',
                 cachePath: '/',
@@ -494,8 +504,7 @@ async function runOCR() {
             statusDiv.innerText = "OCR ολοκληρώθηκε (μόνο grc)";
             document.getElementById('save-btn').disabled = false;
         } catch (fallbackError) {
-            console.error("Fallback OCR Σφάλμα:", fallbackError);
-            statusDiv.innerText = "Αποτυχία OCR. Ελέγξτε τα μοντέλα.";
+            statusDiv.innerText = "Αποτυχία OCR.";
         }
     }
 }
