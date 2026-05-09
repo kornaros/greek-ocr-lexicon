@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<title>Greek Polytonic OCR Pro - Batch Mode</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+/* (ΤΑ STYLES ΠΑΡΑΜΕΝΟΥΝ ΙΔΙΑ - ΔΕΝ ΑΛΛΑΖΟΥΝ) */
+body { margin:0; font-family: 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.toolbar { min-height: 70px; background:#2c3e50; display:flex; align-items:center; gap:8px; padding:0 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); flex-shrink: 0; flex-wrap: wrap; }
+button { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; background: #3498db; color: white; font-weight: bold; white-space: nowrap; }
+button:hover { background: #2980b9; }
+button:disabled { background: #7f8c8d; }
+select { padding: 6px; border-radius: 4px; background: #34495e; color: white; border: 1px solid #5d6d7e; }
+
+.open-btn { background: #f39c12; }
+.batch-btn { background: #1abc9c; }
+.lex-btn { background: #e67e22; }
+.copy-btn { background: #27ae60; }
+.save-btn { background: #8e44ad; }
+.refresh-btn { background: #d35400; }
+.smart-btn { background: #16a085; }
+.zoom-ctrl { background: #576574; font-size: 16px; min-width: 35px; }
+.crop-btn { background: #e74c3c; }
+.nav-btn { background: #2c3e50; border: 1px solid #5d6d7e; padding: 5px 10px; }
+.nav-btn:hover { background: #34495e; }
+
+.container { display:flex; flex: 1; overflow: hidden; }
+.panel { width:50%; display: flex; flex-direction: column; padding:10px; box-sizing:border-box; border-right: 1px solid #ccc; position: relative; }
+
+#image-panel { flex: 1; overflow: auto; background: #dcdde1; position: relative; display: block; }
+#canvasWrapper { position: relative; display: inline-block; margin: 20px; transform-origin: top left; }
+canvas { display: block; box-shadow: 0 0 10px rgba(0,0,0,0.5); background: white; }
+
+#cropBox {
+    position: absolute; border: 3px solid #ff4444; background: rgba(255, 68, 68, 0.15);
+    cursor: move; box-sizing: border-box; z-index: 100; display: none;
+}
+.resize-handle {
+    position: absolute; width: 14px; height: 14px; background: #ff4444;
+    border: 2px solid white; border-radius: 50%; z-index: 101;
+}
+
+#drop-zone {
+    position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
+    border: 2px dashed #bdc3c7; border-radius: 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.95); color: #7f8c8d; text-align: center; z-index: 200;
+}
+#drop-zone.hidden { display: none; }
+
+textarea { flex: 1; font-size:19px; padding: 15px; border: 1px solid #999; border-radius: 4px; resize:none; line-height: 1.5; font-family: 'Times New Roman', serif; background: white; }
+.controls-label { color: white; font-size: 11px; margin-left: 5px; border-left: 1px solid #555; padding-left: 8px; opacity: 0.8; white-space: nowrap; }
+#file-name-display { color: #f1c40f; font-weight: bold; margin-left: 3px; }
+#status { color: #ecf0f1; font-size: 12px; margin-left: auto; font-style: italic; white-space: nowrap; padding-left: 10px; }
+
+#toolbar-nav { display: flex; align-items: center; gap: 5px; margin-left: 5px; border-left: 1px solid #555; padding-left: 8px; }
+#img-counter { color: white; font-size: 11px; opacity: 0.8; margin: 0 5px; }
+#smart-menu { background: #fff; border-top: 3px solid #e67e22; padding: 10px; max-height: 250px; overflow-y: auto; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button class="open-btn" onclick="openSingleImage()">📄 Open Image</button>
+  <button class="batch-btn" onclick="openBatch()">📁 Batch Load (Images + TXT)</button>
+
+  <div id="toolbar-nav" style="display:none;">
+    <button class="nav-btn" onclick="prevFile()">◀</button>
+    <select id="f-sel" onchange="currentIdx = parseInt(this.value); loadFile(currentIdx);"></select>
+    <button class="nav-btn" onclick="nextFile()">▶</button>
+    <span id="img-counter">0/0</span>
+  </div>
+
+  <button id="ocr-btn" onclick="runOCR()" disabled>1. OCR (Ancient Model)</button>
+  <span class="controls-label">ΓΛΩΣΣΑ:</span>
+  <select id="main-lang">
+    <option value="grc">Αρχαία (grc)</option>
+    <option value="ell">Νέα (ell)</option>
+    <option value="grc+ell">Και τα δύο</option>
+  </select>
+
+  <select id="extra-lang">
+    <option value="">+Extra</option>
+    <option value="eng">English</option>
+    <option value="lat">Latin</option>
+  </select>
+
+  <button class="refresh-btn" onclick="convertRightPanel()">2. Εφαρμογή Betacode</button>
+
+  <button class="lex-btn" onclick="loadLexiconFile()">📖 Φόρτωση Τοπικού Λεξικού</button>
+
+  <button id="smart-lex-btn" class="smart-btn" style="background:#e67e22;" onclick="applySmartLexicon()" disabled>3. Χρήση Λεξικού</button>
+  
+  <select id="period-select" style="background:#34495e;color:white;border:1px solid #5d6d7e;">
+    <option value="mix">Όλες οι περίοδοι</option>
+    <option value="cl">Αρχαία / Ελληνιστική</option>
+    <option value="by">Βυζαντινή / Μεσαιωνική</option>
+    <option value="ka">Καθαρεύουσα / Λόγια</option>
+    <option value="dm">Νέα Ελληνικά</option>
+  </select>
+  
+  <label style="color:white; font-size:13px; display:flex; align-items:center; gap:4px;">
+    <input type="checkbox" id="show-comments">
+    Εμφάνιση σχολίων
+  </label>
+ 
+  <button onclick="undoLexicon()">↩ Undo</button>
+  <button class="copy-btn" onclick="copyToClipboard()">4. Copy κειμένου</button>
+  <button id="save-btn" class="save-btn" onclick="saveCurrentText()" disabled>5. Save κειμένου (TXT)</button>
+  <button class="smart-btn" style="background:#d35400;" onclick="exportNewWords()">💾 Save New Words (TXT)</button>
+
+  <span class="controls-label">ΠΛΑΙΣΙΟ:</span>
+  <input type="number" id="cropW" value="400" style="width:55px; background:#3a3a4a; color:white;">
+  <input type="number" id="cropH" value="300" style="width:55px; background:#3a3a4a; color:white;">
+  <button class="crop-btn" onclick="applyCropSize()">Εφαρμογή</button>
+  <button class="crop-btn" onclick="toggleCropBox()" id="toggleCropBtn">🔲 Απόκρ.</button>
+
+  <span class="controls-label">ΕΙΚΟΝΑ [<span id="file-name-display">-</span>]:</span>
+  <button class="zoom-ctrl" onclick="zoomImg(0.02)">+</button>
+  <button class="zoom-ctrl" onclick="zoomImg(-0.02)">-</button>
+  <button class="zoom-ctrl" onclick="rotateImg(-1)">⟲</button>
+  <button class="zoom-ctrl" onclick="rotateImg(1)">⟳</button>
+
+  <span class="controls-label">ΚΕΙΜΕΝΟ:</span>
+  <button class="zoom-ctrl" onclick="zoomText(2)">+</button>
+  <button class="zoom-ctrl" onclick="zoomText(-2)">-</button>
+
+  <div id="status">Περιμένω εικόνα...</div>
+</div>
+
+<div class="container">
+  <div class="panel" id="image-panel">
+    <div id="drop-zone"><p>📁 Επιλέξτε εικόνα ή ομαδικά αρχεία</p></div>
+    <div id="canvasWrapper">
+        <div id="cropBox">
+            <div class="resize-handle" id="h-nw" style="top:0; left:0; cursor:nw-resize"></div>
+            <div class="resize-handle" id="h-ne" style="top:0; right:0; cursor:ne-resize"></div>
+            <div class="resize-handle" id="h-sw" style="bottom:0; left:0; cursor:sw-resize"></div>
+            <div class="resize-handle" id="h-se" style="bottom:0; right:0; cursor:se-resize"></div>
+        </div>
+        <canvas id="mainCanvas"></canvas>
+    </div>
+  </div>
+  <div class="panel">
+    <textarea id="output" placeholder="Το κείμενο θα εμφανιστεί εδώ..."></textarea>
+    <div id="smart-menu" style="display:none;"></div>
+  </div>
+</div>
+
+<script>
+    // ========== ΡΥΘΜΙΣΕΙΣ ==========
+    const GITHUB_LEXICON_URL = "https://raw.githubusercontent.com/kornaros/greek-ocr-lexicon/main/lexicon.json";
+    
+    const correctionsLexicon = { 
+        "Τέρποντας ":"Γέροντας ", "Τέροντος ":"Γέροντας ", "πἀθὴ": "πάθη", 
+        "ΙΙὴγαίνο": "Πηγαίνο", " παι ": " καὶ ", " οἷ ": " οἱ ", " ὸ ": " ὁ ", 
+        " χαἰ ":" καὶ ", " Λς ": " Ἂς ", " ἣ ": " ἡ ", " ἢ ": " ἡ ", " ὃ ": " ὁ ", 
+        " χαὶ": " καὶ", " χατὰ": " κατὰ", "τέχνα ":"τέκνα ", "χαϊ ":"καὶ ", "Ἀρχίης. ":"Ἀρχίμ." ,"χα! " :"καὶ "
+    };
+    
+    let newWords = [];
+    const consonants = "βγδζθκλμνξπρστφχψΒΓΔΖΘΚΛΜΝΞΠΡΣΤΦΧΨ";
+    
+    let imgScale = 0.5, imgRotation = 0, txtSize = 19;
+    let imgLoaded = false, originalImage = null;
+    let currentFileName = "κείμενο";
+    let lexiconData = null;
+    let previousTextBeforeLexicon = "";
+    let cropBoxState = { visible: true, x: 20, y: 20, w: 400, h: 300 };
+    let ambiguousMatches = [];
+    
+    // Batch loading variables
+    let batchFiles = [];      // { name, imageDataURL, textContent }
+    let currentIdx = -1;
+    
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const wrapper = document.getElementById('canvasWrapper');
+    const cropBox = document.getElementById('cropBox');
+    const statusDiv = document.getElementById('status');
+    const textArea = document.getElementById('output');
+    const dropZone = document.getElementById('drop-zone');
+
+    document.getElementById("show-comments").addEventListener("change", renderSmartMenu);
+    
+    // ========== ΦΟΡΤΩΣΗ ΛΕΞΙΚΟΥ ==========
+    window.onload = function() {
+        autoLoadLexicon();
+    };
+    
+    async function autoLoadLexicon() {
+        statusDiv.innerText = "Αυτόματη φόρτωση λεξικού...";
+        try {
+            const response = await fetch(GITHUB_LEXICON_URL);
+            if (!response.ok) throw new Error("Αποτυχία σύνδεσης");
+            const content = await response.json();
+            processLexiconData(content);
+            statusDiv.innerText = "Το λεξικό φορτώθηκε αυτόματα!";
+        } catch (err) {
+            console.warn("Αυτόματη φόρτωση απέτυχε.");
+            statusDiv.innerText = "Λεξικό: Εκκρεμεί φόρτωση.";
+        }
+    }
+    
+    function processLexiconData(data) {
+        let newLexicon = {};
+        for (let key in data) {
+            let normalizedKey = normalizeOCR(key);
+            if (!newLexicon[normalizedKey]) newLexicon[normalizedKey] = [];
+            
+            let seen = new Set();
+            let uniqueEntries = [];
+            data[key].forEach(entry => {
+                let identifier = `${entry[0]}|${entry[1]}`;
+                if (!seen.has(identifier)) {
+                    seen.add(identifier);
+                    uniqueEntries.push(entry);
+                }
+            });
+            newLexicon[normalizedKey].push(...uniqueEntries);
+        }
+        lexiconData = newLexicon;
+        document.getElementById('smart-lex-btn').disabled = false;
+    }
+    
+    async function loadLexiconFile() {
+        try {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{ description: 'JSON Lexicon', accept: { 'application/json': ['.json'] } }]
+            });
+            const file = await fileHandle.getFile();
+            const content = await file.text();
+            processLexiconData(JSON.parse(content));
+            statusDiv.innerText = "Το λεξικό φορτώθηκε χειροκίνητα!";
+        } catch (err) { 
+            statusDiv.innerText = "Ακύρωση φόρτωσης λεξικού."; 
+        }
+    }
+    
+    // ========== BATCH LOADING (Images + TXT) ==========
+    function openBatch() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,.txt';
+        input.multiple = true;
+        input.onchange = async (e) => {
+            const files = Array.from(e.target.files);
+            await processBatchFiles(files);
+        };
+        input.click();
+    }
+    
+    async function processBatchFiles(files) {
+        // Ομαδοποίηση κατά όνομα (χωρίς επέκταση)
+        const groups = new Map();
+        
+        for (const file of files) {
+            const baseName = file.name.replace(/\.[^/.]+$/, "");
+            if (!groups.has(baseName)) {
+                groups.set(baseName, { name: baseName, imageFile: null, txtFile: null });
+            }
+            const group = groups.get(baseName);
+            if (file.type.startsWith('image/')) {
+                group.imageFile = file;
+            } else if (file.name.endsWith('.txt')) {
+                group.txtFile = file;
+            }
+        }
+        
+        // Φόρτωση όλων των αρχείων
+        batchFiles = [];
+        for (const [name, group] of groups) {
+            const item = { name: name, imageDataURL: null, textContent: null };
+            
+            if (group.imageFile) {
+                item.imageDataURL = await readFileAsDataURL(group.imageFile);
+            }
+            if (group.txtFile) {
+                item.textContent = await group.txtFile.text();
+            }
+            batchFiles.push(item);
+        }
+        
+        if (batchFiles.length === 0) {
+            statusDiv.innerText = "Δεν βρέθηκαν αρχεία.";
+            return;
+        }
+        
+        currentIdx = 0;
+        updateBatchNav();
+        await loadFile(currentIdx);
+        statusDiv.innerText = `Φορτώθηκαν ${batchFiles.length} ομάδες αρχείων.`;
+    }
+    
+    function readFileAsDataURL(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(file);
+        });
+    }
+    
+    async function loadFile(idx) {
+        if (idx < 0 || idx >= batchFiles.length) return;
+        
+        const item = batchFiles[idx];
+        currentFileName = item.name;
+        document.getElementById('file-name-display').innerText = item.name;
+        
+        // Φόρτωση κειμένου
+        if (item.textContent) {
+            textArea.value = item.textContent;
+            document.getElementById('save-btn').disabled = false;
+            statusDiv.innerText = `Φορτώθηκε κείμενο για: ${item.name}`;
+        } else {
+            textArea.value = "";
+            document.getElementById('save-btn').disabled = true;
+            statusDiv.innerText = `Χωρίς κείμενο για: ${item.name}`;
+        }
+        
+        // Φόρτωση εικόνας
+        if (item.imageDataURL) {
+            const img = new Image();
+            img.onload = () => {
+                originalImage = img;
+                imgLoaded = true;
+                document.getElementById('ocr-btn').disabled = false;
+                dropZone.classList.add('hidden');
+                updateTransform();
+            };
+            img.src = item.imageDataURL;
+        } else {
+            imgLoaded = false;
+            originalImage = null;
+            document.getElementById('ocr-btn').disabled = true;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            dropZone.classList.remove('hidden');
+        }
+    }
+    
+    function updateBatchNav() {
+        const navDiv = document.getElementById('toolbar-nav');
+        const select = document.getElementById('f-sel');
+        const counter = document.getElementById('img-counter');
+        
+        if (batchFiles.length > 1) {
+            navDiv.style.display = 'flex';
+            select.innerHTML = batchFiles.map((f, i) => 
+                `<option value="${i}" ${i === currentIdx ? 'selected' : ''}>${f.name}</option>`
+            ).join('');
+            counter.innerText = `${currentIdx + 1}/${batchFiles.length}`;
+        } else {
+            navDiv.style.display = 'none';
+        }
+    }
+    
+    function prevFile() {
+        if (currentIdx > 0) {
+            currentIdx--;
+            loadFile(currentIdx);
+            updateBatchNav();
+        }
+    }
+    
+    function nextFile() {
+        if (currentIdx < batchFiles.length - 1) {
+            currentIdx++;
+            loadFile(currentIdx);
+            updateBatchNav();
+        }
+    }
+    
+    // Αποθήκευση τρέχοντος κειμένου (download)
+    async function saveCurrentText() {
+        const cleanText = textArea.value.replace(/\(\d+\?\)/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n");
+        const fileName = currentFileName + ".txt";
+        
+        const blob = new Blob([cleanText], { type: 'text/plain;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+        statusDiv.innerText = "Αποθηκεύτηκε: " + fileName;
+        
+        // Αν υπάρχει στο batch, ενημερώνουμε το textContent
+        if (currentIdx >= 0 && batchFiles[currentIdx]) {
+            batchFiles[currentIdx].textContent = cleanText;
+        }
+    }
+    
+    // ========== SINGLE IMAGE (απλή λειτουργία) ==========
+    function openSingleImage() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = (e) => {
+            if (e.target.files[0]) loadSingleImage(e.target.files[0]);
+        };
+        input.click();
+    }
+    
+    function loadSingleImage(file) {
+        currentFileName = file.name.replace(/\.[^/.]+$/, "");
+        document.getElementById('file-name-display').innerText = file.name;
+        textArea.value = "";
+        document.getElementById('save-btn').disabled = true;
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                originalImage = img;
+                imgLoaded = true;
+                document.getElementById('ocr-btn').disabled = false;
+                dropZone.classList.add('hidden');
+                updateTransform();
+                statusDiv.innerText = `Φορτώθηκε: ${file.name}`;
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // ========== OCR ==========
+    async function runOCR() {
+        if (!imgLoaded) {
+            statusDiv.innerText = "Δεν υπάρχει εικόνα!";
+            return;
+        }
+        statusDiv.innerText = "OCR σε εξέλιξη...";
+
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropBoxState.w;
+        cropCanvas.height = cropBoxState.h;
+        const cCtx = cropCanvas.getContext('2d');
+        cCtx.drawImage(canvas, cropBoxState.x, cropBoxState.y, cropBoxState.w, cropBoxState.h, 0, 0, cropBoxState.w, cropBoxState.h);
+
+        try {
+            const worker = await Tesseract.createWorker('grc', 1, {
+                langPath: 'https://raw.githubusercontent.com/kornaros/greek-ocr-lexicon/main/',
+                cachePath: '/',
+                gpu: false,
+                legacyCore: true
+            });
+            
+            const { data: { text } } = await worker.recognize(cropCanvas.toDataURL());
+            await worker.terminate();
+
+            let finalText = text.replace(/-\s*\n\s*/g, "");
+            finalText = finalText.replace(/([^\n])\n([^\n])/g, "$1 $2");
+            
+            for (let [err, corr] of Object.entries(correctionsLexicon)) {
+                finalText = finalText.replace(new RegExp(err.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), corr);
+            }
+            
+            textArea.value = applyBetacodeOnly(finalText);
+            statusDiv.innerText = "OCR ολοκληρώθηκε!";
+            document.getElementById('save-btn').disabled = false;
+            
+            // Ενημέρωση batch textContent αν υπάρχει
+            if (currentIdx >= 0 && batchFiles[currentIdx]) {
+                batchFiles[currentIdx].textContent = textArea.value;
+            }
+            
+        } catch (error) {
+            console.error("OCR Σφάλμα:", error);
+            statusDiv.innerText = "Σφάλμα OCR: " + error.message;
+        }
+    }
+    
+    // ========== ΛΕΞΙΚΟ & ΔΙΟΡΘΩΣΕΙΣ (ίδιο με πριν) ==========
+    function normalizeOCR(word) { 
+        return word.replace(/[κχλ]/g, 'Ω').replace(/[ΚΧΛ]/g, 'Ω'); 
+    }
+    
+    function getSimilarity(s1, s2) {
+        let longer = s1.length < s2.length ? s2 : s1;
+        let shorter = s1.length < s2.length ? s1 : s2;
+        if (longer.length === 0) return 1.0;
+        
+        const editDistance = (a, b) => {
+            const costs = [];
+            for (let i = 0; i <= a.length; i++) {
+                let lastValue = i;
+                for (let j = 0; j <= b.length; j++) {
+                    if (i === 0) costs[j] = j;
+                    else if (j > 0) {
+                        let newValue = costs[j - 1];
+                        if (a.charAt(i - 1) !== b.charAt(j - 1)) 
+                            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                        costs[j - 1] = lastValue;
+                        lastValue = newValue;
+                    }
+                }
+                if (i > 0) costs[b.length] = lastValue;
+            }
+            return costs[b.length];
+        };
+        return (longer.length - editDistance(longer, shorter)) / longer.length;
+    }
+    
+    function preserveCase(originalWord, correctedWord) {
+        if (!originalWord || !correctedWord) return correctedWord;
+        const isUpper = originalWord.charAt(0) === originalWord.charAt(0).toUpperCase() && 
+                        originalWord.charAt(0) !== originalWord.charAt(0).toLowerCase();
+        return isUpper ? correctedWord.charAt(0).toUpperCase() + correctedWord.slice(1) : 
+                         correctedWord.charAt(0).toLowerCase() + correctedWord.slice(1);
+    }
+    
+    async function applySmartLexicon() {
+        if (!lexiconData) {
+            statusDiv.innerText = "Πρώτα φορτώστε λεξικό!";
+            return;
+        }
+
+        statusDiv.innerText = "Διόρθωση με λεξικό...";
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        textArea.value = textArea.value.replace(/\(\d+\?\)/g, "");
+        previousTextBeforeLexicon = textArea.value;
+        
+        ambiguousMatches = [];
+        let ambCount = 0;
+
+        let words = textArea.value.split(/(\s+)/);
+        const corrected = words.map(word => {
+            let clean = word.replace(/[^\p{L}\p{M}]/gu, "");
+            if (clean.length < 3) return word;
+
+            let atono = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            let prefix = normalizeOCR(atono.substring(0, 2));
+
+            if (!lexiconData[prefix]) return word;
+
+            let bestMatches = [];
+            let bestScore = 0;
+
+            for (let item of lexiconData[prefix]) {
+                const plain = item[0];
+                const poly = item[1];
+                const meta = item[2] || {};
+                const period = meta.period || "mix";
+
+                let score = getSimilarity(atono, plain.toLowerCase());
+                let selectedPeriod = document.getElementById("period-select").value;
+
+                if (clean === poly) score += 0.15;
+                if (clean.toLowerCase() === poly.toLowerCase()) score += 0.05;
+                
+                if (selectedPeriod !== "mix") {
+                    if (period === selectedPeriod) score += 0.12;
+                    else if (period === "mix") score += 0.03;
+                }
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatches = [{ word: poly, meta: meta }];
+                } else if (Math.abs(score - bestScore) < 0.01 && score > 0.80) {
+                    bestMatches.push({ word: poly, meta: meta });
+                }
+            }
+
+            if (bestScore >= 0.80) {
+                if (bestMatches.length === 1) {
+                    return word.replace(clean, preserveCase(clean, bestMatches[0].word));
+                } else {
+                    ambCount++;
+                    let marker = `(${ambCount}?)`;
+                    ambiguousMatches.push({ id: ambCount, original: clean, marker: marker, options: bestMatches });
+                    return word.replace(clean, clean + marker);
+                }
+            } else if (clean.length >= 4) {
+                ambCount++;
+                let marker = `(${ambCount}?)`;
+                ambiguousMatches.push({ id: ambCount, original: clean, marker: marker, options: [] });
+                return word.replace(clean, clean + marker);
+            }
+            return word;
+        });
+
+        textArea.value = corrected.join("");
+        renderSmartMenu();
+        statusDiv.innerText = ambCount > 0 ? `Ολοκληρώθηκε με ${ambCount} άγνωστες λέξεις.` : "Ολοκληρώθηκε επιτυχώς.";
+        
+        // Ενημέρωση batch textContent
+        if (currentIdx >= 0 && batchFiles[currentIdx]) {
+            batchFiles[currentIdx].textContent = textArea.value;
+        }
+    }
+    
+    function renderSmartMenu() {
+        const menu = document.getElementById("smart-menu");
+        if (ambiguousMatches.length === 0) {
+            menu.style.display = "none";
+            return;
+        }
+
+        const showComments = document.getElementById("show-comments").checked;
+        menu.style.display = "block";
+        menu.innerHTML = ambiguousMatches.map((match, index) => {
+            let buttons = match.options.map(opt => {
+                const wordOnly = typeof opt === "string" ? opt : opt.word;
+                const meta = typeof opt === "string" ? {} : (opt.meta || {});
+                const comment = meta.com || "";
+                let label = wordOnly;
+                if (showComments && comment) label += ` <span style="color:#7f8c8d;">(${comment})</span>`;
+                const safeWord = wordOnly.replace(/'/g, "\\'");
+                return `<button onclick="resolveAmbiguity(${index}, '${safeWord}')">${label}</button>`;
+            }).join("");
+
+            return `
+                <div style="margin-bottom:12px; padding:8px; border-bottom:1px solid #ddd;">
+                    <b>Λέξη ${match.marker}:</b> ${match.original}<br><br>
+                    ${buttons}
+                    <div style="margin-top:8px;">
+                        <input type="text" id="manual-fix-${index}" placeholder="Νέα λέξη..." style="padding:5px; width:160px;">
+                        <button onclick="manualFix(${index})">Διόρθωσε!</button>
+                        <button onclick="keepOriginal(${index})">Παραμονή</button>
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+    
+    function resolveAmbiguity(index, selectedWord) {
+        const match = ambiguousMatches[index];
+        if (!match) return;
+        const fullToken = match.original + match.marker;
+        textArea.value = textArea.value.replace(fullToken, selectedWord);
+        ambiguousMatches.splice(index, 1);
+        renderSmartMenu();
+    }
+    
+    function keepOriginal(index) {
+        const match = ambiguousMatches[index];
+        const fullToken = match.original + match.marker;
+        textArea.value = textArea.value.replace(fullToken, match.original);
+        ambiguousMatches.splice(index, 1);
+        renderSmartMenu();
+    }
+    
+    function manualFix(index) {
+        const input = document.getElementById(`manual-fix-${index}`);
+        const newWordInput = input.value.trim();
+        const match = ambiguousMatches[index];
+        const fullToken = match.original + match.marker;
+        const wordToKeep = newWordInput || match.original;
+        textArea.value = textArea.value.replace(fullToken, wordToKeep);
+        if (!newWords.includes(wordToKeep)) newWords.push(wordToKeep);
+        ambiguousMatches.splice(index, 1);
+        renderSmartMenu();
+    }
+    
+    function undoLexicon() {
+        if (previousTextBeforeLexicon !== "") {
+            textArea.value = previousTextBeforeLexicon;
+            ambiguousMatches = [];
+            renderSmartMenu();
+            statusDiv.innerText = "Επαναφορά.";
+        }
+    }
+    
+    async function exportNewWords() {
+        if (!newWords || newWords.length === 0) {
+            alert("Δεν υπάρχουν νέες λέξεις.");
+            return;
+        }
+        const content = newWords.join("\n");
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = "new_words.txt";
+        a.click();
+        statusDiv.innerText = "Εξήχθησαν " + newWords.length + " λέξεις.";
+    }
+    
+    // ========== ΒΟΗΘΗΤΙΚΕΣ (crop, zoom, rotate, betacode) ==========
+    function updateCropBoxPosition() {
+        cropBox.style.left = cropBoxState.x + 'px';
+        cropBox.style.top = cropBoxState.y + 'px';
+        cropBox.style.width = cropBoxState.w + 'px';
+        cropBox.style.height = cropBoxState.h + 'px';
+        cropBox.style.display = (cropBoxState.visible && imgLoaded) ? 'block' : 'none';
+    }
+    
+    let isDragging = false, isResizing = false, activeHandle = null;
+    let startMouse = { x: 0, y: 0 }, startCrop = { x: 0, y: 0, w: 0, h: 0 };
+    
+    cropBox.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        if (e.target.classList.contains('resize-handle')) { isResizing = true; activeHandle = e.target.style.cursor; }
+        else { isDragging = true; }
+        startMouse = { x: e.clientX, y: e.clientY };
+        startCrop = { ...cropBoxState };
+    });
+    
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging && !isResizing) return;
+        let dx = (e.clientX - startMouse.x) / imgScale;
+        let dy = (e.clientY - startMouse.y) / imgScale;
+        if (isDragging) {
+            cropBoxState.x = startCrop.x + dx;
+            cropBoxState.y = startCrop.y + dy;
+        } else if (isResizing) {
+            if (activeHandle.includes('e')) cropBoxState.w = Math.max(20, startCrop.w + dx);
+            if (activeHandle.includes('s')) cropBoxState.h = Math.max(20, startCrop.h + dy);
+            if (activeHandle.includes('w')) { cropBoxState.x = startCrop.x + dx; cropBoxState.w = Math.max(20, startCrop.w - dx); }
+            if (activeHandle.includes('n')) { cropBoxState.y = startCrop.y + dy; cropBoxState.h = Math.max(20, startCrop.h - dy); }
+            document.getElementById('cropW').value = Math.round(cropBoxState.w);
+            document.getElementById('cropH').value = Math.round(cropBoxState.h);
+        }
+        updateCropBoxPosition();
+    });
+    window.addEventListener('mouseup', () => { isDragging = false; isResizing = false; });
+    
+    function drawRotated() {
+        if (!originalImage) return;
+        const angleRad = imgRotation * Math.PI / 180;
+        const absCos = Math.abs(Math.cos(angleRad)), absSin = Math.abs(Math.sin(angleRad));
+        canvas.width = originalImage.width * absCos + originalImage.height * absSin;
+        canvas.height = originalImage.width * absSin + originalImage.height * absCos;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2);
+        ctx.rotate(angleRad);
+        ctx.drawImage(originalImage, -originalImage.width/2, -originalImage.height/2);
+        ctx.restore();
+    }
+    
+    function updateTransform() { wrapper.style.transform = `scale(${imgScale})`; drawRotated(); updateCropBoxPosition(); }
+    function zoomImg(val) { imgScale = Math.max(0.1, Math.min(3, imgScale + val)); updateTransform(); }
+    function rotateImg(val) { imgRotation += val; updateTransform(); }
+    function zoomText(val) { txtSize = Math.min(Math.max(8, txtSize + val), 60); textArea.style.fontSize = txtSize + "px"; }
+    function toggleCropBox() { cropBoxState.visible = !cropBoxState.visible; updateCropBoxPosition(); }
+    function applyCropSize() { cropBoxState.w = parseInt(document.getElementById('cropW').value); cropBoxState.h = parseInt(document.getElementById('cropH').value); updateCropBoxPosition(); }
+    
+    function convertRightPanel() { textArea.value = applyBetacodeOnly(textArea.value); }
+    
+    function applyBetacodeOnly(text) {
+        return advancedBetacode(text).split(/(\s+)/).map(w => /\S/.test(w) ? fixInternalSpiritus(w) : w).join("");
+    }
+    
+    function advancedBetacode(text) {
+        let t = text;
+        const map = { "(": "\u0314", ")": "\u0313", "/": "\u0301", "\\": "\u0300", "=": "\u0342", "+": "\u0308", "|": "\u0345" };
+        const v = "αεηιουωΑΕΗΙΟΥΩᾳῃῳ";
+        const av = { 'ά':'α','έ':'ε','ή':'η','ί':'ι','ό':'ο','ύ':'υ','ώ':'ω','Ά':'Α','Έ':'Ε','Ή':'Η','Ί':'Ι','Ό':'Ο','Ύ':'Υ','Ώ':'Ω' };
+        let res = "", i = 0;
+        while (i < t.length) {
+            let pre = "";
+            while (i < t.length && "()/\\+=|".includes(t[i])) { pre += t[i]; i++; }
+            let c = t[i] || "";
+            if (c && (v.includes(c) || av[c])) {
+                let b = av[c] || c;
+                let m = (av[c] && !pre.match(/[\\\/=]/)) ? map['/'] : "";
+                for (let s of pre) m += map[s] || "";
+                res += (b + m).normalize("NFC");
+            } else {
+                res += pre + c;
+            }
+            i++;
+        }
+        return res;
+    }
+    
+    function fixInternalSpiritus(word) {
+        if (word.length <= 2) return word;
+        let d = Array.from(word.normalize("NFD")), r = [];
+        for (let i = 0; i < d.length; i++) {
+            if ((d[i] === "\u0313" || d[i] === "\u0314") && i >= 2) {
+                let next = null;
+                for(let j = i+1; j < d.length; j++) if(!d[j].match(/[\u0300-\u036f]/)) { next = d[j]; break; }
+                if (consonants.includes(d[i-2]) && next && consonants.includes(next)) {
+                    r.push("\u0301");
+                    continue;
+                }
+            }
+            r.push(d[i]);
+        }
+        return r.join("").normalize("NFC");
+    }
+    
+    function copyToClipboard() { 
+        navigator.clipboard.writeText(textArea.value); 
+        alert("Αντιγράφηκε!");
+    }
+</script>
+</body>
+</html>
