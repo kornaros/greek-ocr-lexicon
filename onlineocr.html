@@ -424,26 +424,20 @@ textarea { flex: 1; font-size:19px; padding: 15px; border: 1px solid #999; borde
     }
     
     // ========== OCR ==========
-
-// ========== OCR ==========
-async function runOCR() {
+    async function runOCR() {
     if (!imgLoaded) {
         statusDiv.innerText = "Δεν υπάρχει εικόνα!";
         return;
     }
     
-    // ★ ΔΙΑΒΑΖΕΙ ΤΙΣ ΕΠΙΛΟΓΕΣ ΤΟΥ ΧΡΗΣΤΗ ★
     const mainLang = document.getElementById('main-lang').value;
     const extraLang = document.getElementById('extra-lang').value;
     
-    // ★ ΦΤΙΑΧΝΕΙ ΤΟ ΣΩΣΤΟ STRING ΓΛΩΣΣΩΝ ★
+    // Φτιάχνουμε το string γλωσσών (ό,τι κι αν επέλεξε ο χρήστης)
     let langString = mainLang;
     if (extraLang) {
         langString = langString + '+' + extraLang;
     }
-    
-    // ★ ΑΝ ΕΙΝΑΙ ΜΟΝΟ grc, ΜΗΝ ΠΡΟΣΘΕΤΕΙΣ ΤΙΠΟΤΑ ★
-    // (το 'grc' είναι ήδη σωστό)
     
     statusDiv.innerText = `OCR σε εξέλιξη (${langString})...`;
 
@@ -454,6 +448,7 @@ async function runOCR() {
     cCtx.drawImage(canvas, cropBoxState.x, cropBoxState.y, cropBoxState.w, cropBoxState.h, 0, 0, cropBoxState.w, cropBoxState.h);
 
     try {
+        // ★ ΤΟ ΜΟΝΟ ΣΗΜΑΝΤΙΚΟ: Φόρτωσε το μοντέλο από το GitHub σου ★
         const worker = await Tesseract.createWorker(langString, 1, {
             langPath: 'https://raw.githubusercontent.com/kornaros/greek-ocr-lexicon/main/',
             cachePath: '/',
@@ -464,21 +459,9 @@ async function runOCR() {
         const { data: { text } } = await worker.recognize(cropCanvas.toDataURL());
         await worker.terminate();
 
-        // ★ ΚΑΘΑΡΙΣΜΟΣ ΚΟΛΛΗΜΕΝΩΝ ΛΕΞΕΩΝ ★
-        let finalText = text;
-        
-        // Αφαίρεση συλλαβισμού
-        finalText = finalText.replace(/-\s*\n\s*/g, "");
-        
-        // Ένωση γραμμών (με προσθήκη κενού)
+        let finalText = text.replace(/-\s*\n\s*/g, "");
         finalText = finalText.replace(/([^\n])\n([^\n])/g, "$1 $2");
         
-        // ★ ΠΡΟΣΘΗΚΗ: Διαχωρισμός κολλημένων λέξεων ★
-        // Βάζει κενό ανάμεσα σε ελληνικούς χαρακτήρες που είναι κολλημένοι
-        finalText = finalText.replace(/([α-ωάέήίόύώϛϟϡ])([α-ωάέήίόύώϛϟϡ])/gi, "$1 $2");
-        // Αυτό είναι ένα απλό παράδειγμα - μπορείτε να το προσαρμόσετε
-        
-        // Εφαρμογή διορθώσεων
         for (let [err, corr] of Object.entries(correctionsLexicon)) {
             finalText = finalText.replace(new RegExp(err.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), corr);
         }
@@ -487,46 +470,15 @@ async function runOCR() {
         statusDiv.innerText = `OCR ολοκληρώθηκε! (${langString})`;
         document.getElementById('save-btn').disabled = false;
         
-        if (typeof currentIdx !== 'undefined' && currentIdx >= 0 && batchFiles && batchFiles[currentIdx]) {
-            batchFiles[currentIdx].textContent = textArea.value;
-        }
-        
     } catch (error) {
         console.error("OCR Σφάλμα:", error);
         statusDiv.innerText = "Σφάλμα OCR: " + error.message;
-        
-        // Fallback μόνο grc
-        try {
-            statusDiv.innerText = "Δοκιμή μόνο με grc...";
-            const worker = await Tesseract.createWorker('grc', 1, {
-                langPath: 'https://raw.githubusercontent.com/kornaros/greek-ocr-lexicon/main/',
-                cachePath: '/',
-                gpu: false,
-                legacyCore: true
-            });
-            const { data: { text } } = await worker.recognize(cropCanvas.toDataURL());
-            await worker.terminate();
-            
-            let finalText = text.replace(/-\s*\n\s*/g, "");
-            finalText = finalText.replace(/([^\n])\n([^\n])/g, "$1 $2");
-            finalText = finalText.replace(/([α-ωάέήίόύώϛϟϡ])([α-ωάέήίόύώϛϟϡ])/gi, "$1 $2");
-            
-            for (let [err, corr] of Object.entries(correctionsLexicon)) {
-                finalText = finalText.replace(new RegExp(err.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), corr);
-            }
-            textArea.value = applyBetacodeOnly(finalText);
-            statusDiv.innerText = "OCR ολοκληρώθηκε (μόνο grc)";
-            document.getElementById('save-btn').disabled = false;
-        } catch (fallbackError) {
-            statusDiv.innerText = "Αποτυχία OCR.";
-        }
     }
 }
-    
-    // ========== ΛΕΞΙΚΟ & ΔΙΟΡΘΩΣΕΙΣ (ίδιο με πριν) ==========
-    function normalizeOCR(word) { 
-        return word.replace(/[κχλ]/g, 'Ω').replace(/[ΚΧΛ]/g, 'Ω'); 
-    }
+
+======
+
+
     
     function getSimilarity(s1, s2) {
         let longer = s1.length < s2.length ? s2 : s1;
